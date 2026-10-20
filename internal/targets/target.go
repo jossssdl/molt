@@ -57,12 +57,14 @@ type Labeler interface {
 }
 
 // Default returns the built-in targets. AI caches are only included when
-// includeAI is set, since they are machine-wide rather than per-project.
+// includeAI is set (the -ai-caches flag), since they are machine-wide rather
+// than per-project; that group also covers Xcode DerivedData on macOS.
 func Default(includeAI bool) []Target {
-	ts := []Target{NodeModules(), PythonVenv(), RustTarget(), NextJS()}
+	ts := []Target{NodeModules(), PythonVenv(), RustTarget(), NextJS(),
+		SwiftBuild(), GradleLocal(), TerraformDir(), CocoaPods()}
 	if includeAI {
 		ts = append(ts, HuggingFace(), OllamaOrphans(), LlamaCppCache(), LMStudioModels(),
-			PyTorchHub(), UvCache(), Pip())
+			VllmCache(), PyTorchHub(), UvCache(), Pip(), XcodeDerivedData())
 	}
 	return ts
 }

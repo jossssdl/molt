@@ -31,3 +31,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Local manual-test sandbox (go run ./scripts/sandbox)
+.sandbox/

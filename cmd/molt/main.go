@@ -78,7 +78,7 @@ func parseFlags(args []string, stderr io.Writer) (config, error) {
 	fs.SetOutput(stderr)
 	fs.Var(&roots, "root", "directory to scan for dev artifacts (repeatable or comma-separated; default: current directory)")
 	fs.Var(&exclude, "exclude", "folder name, glob or absolute path to skip (repeatable or comma-separated)")
-	fs.BoolVar(&cfg.ai, "ai-caches", false, "also scan AI caches (Hugging Face models/datasets, pip, orphaned Ollama blobs)")
+	fs.BoolVar(&cfg.ai, "ai-caches", false, "also scan global AI and system caches (Hugging Face, Ollama, llama.cpp, LM Studio, vLLM, uv, pip, Xcode DerivedData)")
 	fs.IntVar(&cfg.workers, "workers", 0, "number of measuring workers (default: number of CPUs)")
 	fs.BoolVar(&cfg.json, "json", false, "print results as JSON (no TUI)")
 	fs.BoolVar(&cfg.list, "list", false, "print a table instead of opening the TUI")

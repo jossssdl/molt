@@ -22,10 +22,17 @@ type locationTarget struct {
 	name    string
 	resolve func() ([]string, error)
 	label   func(path string) string
+	// category defaults to CategoryAI when empty.
+	category Category
 }
 
-func (t locationTarget) Name() string               { return t.name }
-func (locationTarget) Category() Category           { return CategoryAI }
+func (t locationTarget) Name() string { return t.name }
+func (t locationTarget) Category() Category {
+	if t.category == "" {
+		return CategoryAI
+	}
+	return t.category
+}
 func (locationTarget) GitAware() bool               { return false }
 func (t locationTarget) Resolve() ([]string, error) { return t.resolve() }
 

@@ -152,7 +152,10 @@ func TestDefaultIncludesEveryAIEngineOnlyWhenRequested(t *testing.T) {
 			t.Errorf("Default(true) missing %q", want)
 		}
 	}
-	for _, tt := range Default(true)[4:] {
+	for _, tt := range Default(true) {
+		if _, isPattern := tt.(PatternTarget); isPattern {
+			continue // per-project targets are covered elsewhere
+		}
 		if _, ok := tt.(LocationTarget); !ok || tt.GitAware() {
 			t.Errorf("%s must be a non-git LocationTarget", tt.Name())
 		}

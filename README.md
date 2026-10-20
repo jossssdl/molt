@@ -1,5 +1,10 @@
 # molt
 
+[![CI](https://github.com/jossssdl/molt/actions/workflows/ci.yml/badge.svg)](https://github.com/jossssdl/molt/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/jossssdl/molt)](https://github.com/jossssdl/molt/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/jossssdl/molt.svg)](https://pkg.go.dev/github.com/jossssdl/molt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **English** · [Español](README.es.md)
 
 Fast terminal UI for reclaiming disk space from developer artifacts and local AI caches, with Git-aware safety.
@@ -41,9 +46,15 @@ In short: *free the most space with the least risk of losing work.*
 | `.venv` / `venv` | contains `pyvenv.cfg` |
 | `target` | next to `Cargo.toml` or `pom.xml` |
 | `.next` | next to `package.json` |
+| Swift Package Manager `.build` | next to `Package.swift` |
+| Gradle `.gradle` / `build` | next to `build.gradle` or `build.gradle.kts` |
+| Terraform `.terraform` | next to `*.tf` files or `.terraform.lock.hcl` |
+| CocoaPods `Pods` | next to `Podfile` |
 | Hugging Face models / datasets | each `models--*` and `datasets--*` folder in the hub cache (`HF_HUB_CACHE`, `HF_HOME/hub`, `~/.cache/huggingface/hub`), listed as e.g. `HF Model: org/name` (`-ai-caches`) |
 | llama.cpp models | each `*.gguf` (and stale `.partial` downloads) in `LLAMA_CACHE`, `~/.cache/llama.cpp`, `~/Library/Caches/llama.cpp` (macOS) or `%LOCALAPPDATA%\llama.cpp` (Windows) (`-ai-caches`) |
 | LM Studio models | each `<publisher>/<model>` folder in `~/.lmstudio/models` and `~/.cache/lm-studio/models` (`-ai-caches`) |
+| vLLM cache | `VLLM_CACHE_ROOT`, `$XDG_CACHE_HOME/vllm`, `~/.cache/vllm` (Linux/macOS, `-ai-caches`) |
+| Xcode DerivedData | each project folder in `~/Library/Developer/Xcode/DerivedData` (macOS only, `-ai-caches`) |
 | PyTorch hub | `$TORCH_HOME/hub`, `~/.cache/torch/hub` (`-ai-caches`) |
 | uv cache | `UV_CACHE_DIR`, `~/.cache/uv`, `%LOCALAPPDATA%\uv\cache` (Windows) (`-ai-caches`) |
 | pip cache | `PIP_CACHE_DIR`, `~/.cache/pip`, `%LOCALAPPDATA%\pip\Cache` (`-ai-caches`) |
@@ -53,15 +64,38 @@ The TUI shows `⚠ N paths skipped (permission/error)` in its status bar when th
 
 Orphan detection refuses to guess: if the Ollama manifests are missing or unreadable, nothing is reported.
 
-## Install
+## Installation
 
-Requires Go 1.24+ and `git` on your `PATH`.
+Requires `git` on your `PATH`. Pick the option for your system:
+
+### Linux & macOS (one-liner)
+
+```sh
+curl -sSL https://raw.githubusercontent.com/jossssdl/molt/main/install.sh | sh
+```
+
+The script detects your OS and architecture, downloads the latest release, **verifies its SHA-256 checksum** and installs `molt` into `/usr/local/bin` (or `~/.local/bin` if that is not writable). Set `MOLT_VERSION` or `MOLT_INSTALL_DIR` to override the defaults. Read it first at [`install.sh`](install.sh) if you prefer.
+
+### Windows, Linux & macOS (Go)
 
 ```sh
 go install github.com/jossssdl/molt/cmd/molt@latest
 ```
 
-Or build from source:
+Requires Go 1.24+.
+
+### Prebuilt binaries
+
+Download the archive for your system from the [latest release](https://github.com/jossssdl/molt/releases/latest) and put `molt` somewhere on your `PATH`. Each release includes `checksums.txt`.
+
+| System | Archive |
+| --- | --- |
+| Windows (x64 / ARM64) | `molt_<version>_windows_amd64.zip` / `molt_<version>_windows_arm64.zip` |
+| macOS, Apple Silicon | `molt_<version>_darwin_arm64.tar.gz` |
+| macOS, Intel | `molt_<version>_darwin_amd64.tar.gz` |
+| Linux (x64 / ARM64) | `molt_<version>_linux_amd64.tar.gz` / `molt_<version>_linux_arm64.tar.gz` |
+
+### From source
 
 ```sh
 git clone https://github.com/jossssdl/molt
@@ -107,6 +141,8 @@ molt -dry-run=false -root ~/projects   # really delete (still asks for confirmat
 | mouse | Click a row to select it, wheel to scroll |
 
 ## Development
+
+To try molt safely (including real deletion) run `go run ./scripts/sandbox`: it builds a disposable scenario in `.sandbox/` and prints how to launch molt against it with a fake home directory. Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ```sh
 go build ./...

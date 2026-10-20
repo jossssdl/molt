@@ -3,6 +3,7 @@ package targets
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // patternTarget is a PatternTarget backed by a matcher function.
@@ -68,6 +69,65 @@ func NextJS() Target {
 		name: ".next",
 		match: func(path, name string) bool {
 			return name == ".next" && siblingExists(path, "package.json")
+		},
+	}
+}
+
+// siblingWithSuffix reports whether the directory containing path holds a
+// regular entry whose name ends with suffix (for example ".tf").
+func siblingWithSuffix(path, suffix string) bool {
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// SwiftBuild matches the SwiftPM ".build" directory next to a Package.swift.
+func SwiftBuild() Target {
+	return patternTarget{
+		name: ".build",
+		match: func(path, name string) bool {
+			return name == ".build" && siblingExists(path, "Package.swift")
+		},
+	}
+}
+
+// GradleLocal matches the project-local ".gradle" and "build" directories next
+// to a build.gradle or build.gradle.kts.
+func GradleLocal() Target {
+	return patternTarget{
+		name: "gradle",
+		match: func(path, name string) bool {
+			return (name == ".gradle" || name == "build") &&
+				siblingExists(path, "build.gradle", "build.gradle.kts")
+		},
+	}
+}
+
+// TerraformDir matches ".terraform" (downloaded providers and modules) next to
+// Terraform sources (*.tf) or a dependency lock file.
+func TerraformDir() Target {
+	return patternTarget{
+		name: ".terraform",
+		match: func(path, name string) bool {
+			return name == ".terraform" &&
+				(siblingWithSuffix(path, ".tf") || siblingExists(path, ".terraform.lock.hcl"))
+		},
+	}
+}
+
+// CocoaPods matches the "Pods" directory next to a Podfile.
+func CocoaPods() Target {
+	return patternTarget{
+		name: "Pods",
+		match: func(path, name string) bool {
+			return name == "Pods" && siblingExists(path, "Podfile")
 		},
 	}
 }

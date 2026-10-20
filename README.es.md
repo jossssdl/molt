@@ -1,5 +1,10 @@
 # molt
 
+[![CI](https://github.com/jossssdl/molt/actions/workflows/ci.yml/badge.svg)](https://github.com/jossssdl/molt/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/jossssdl/molt)](https://github.com/jossssdl/molt/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/jossssdl/molt.svg)](https://pkg.go.dev/github.com/jossssdl/molt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [English](README.md) · **Español**
 
 Interfaz de terminal rápida para recuperar espacio en disco de artefactos de desarrollo y cachés locales de IA, con protección inteligente de Git.
@@ -41,9 +46,15 @@ En resumen: *liberar el máximo espacio con el mínimo riesgo de perder trabajo.
 | `.venv` / `venv` | contiene `pyvenv.cfg` |
 | `target` | junto a `Cargo.toml` o `pom.xml` |
 | `.next` | junto a `package.json` |
+| Swift Package Manager `.build` | junto a `Package.swift` |
+| Gradle `.gradle` / `build` | junto a `build.gradle` o `build.gradle.kts` |
+| Terraform `.terraform` | junto a archivos `*.tf` o `.terraform.lock.hcl` |
+| CocoaPods `Pods` | junto a `Podfile` |
 | Modelos / datasets de Hugging Face | cada carpeta `models--*` y `datasets--*` de la caché del hub (`HF_HUB_CACHE`, `HF_HOME/hub`, `~/.cache/huggingface/hub`), listados como `HF Model: org/name` (`-ai-caches`) |
 | Modelos de llama.cpp | cada `*.gguf` (y descargas `.partial` abandonadas) en `LLAMA_CACHE`, `~/.cache/llama.cpp`, `~/Library/Caches/llama.cpp` (macOS) o `%LOCALAPPDATA%\llama.cpp` (Windows) (`-ai-caches`) |
 | Modelos de LM Studio | cada carpeta `<publisher>/<model>` en `~/.lmstudio/models` y `~/.cache/lm-studio/models` (`-ai-caches`) |
+| Caché de vLLM | `VLLM_CACHE_ROOT`, `$XDG_CACHE_HOME/vllm`, `~/.cache/vllm` (Linux/macOS, `-ai-caches`) |
+| Xcode DerivedData | cada carpeta de proyecto en `~/Library/Developer/Xcode/DerivedData` (solo macOS, `-ai-caches`) |
 | PyTorch hub | `$TORCH_HOME/hub`, `~/.cache/torch/hub` (`-ai-caches`) |
 | Caché de uv | `UV_CACHE_DIR`, `~/.cache/uv`, `%LOCALAPPDATA%\uv\cache` (Windows) (`-ai-caches`) |
 | Caché de pip | `PIP_CACHE_DIR`, `~/.cache/pip`, `%LOCALAPPDATA%\pip\Cache` (`-ai-caches`) |
@@ -55,13 +66,36 @@ La detección de huérfanos no adivina: si faltan los manifests de Ollama o algu
 
 ## Instalación
 
-Requiere Go 1.24+ y `git` en el `PATH`.
+Requiere `git` en el `PATH`. Elige la opción para tu sistema:
+
+### Linux y macOS (un solo comando)
+
+```sh
+curl -sSL https://raw.githubusercontent.com/jossssdl/molt/main/install.sh | sh
+```
+
+El script detecta tu sistema y arquitectura, descarga el último release, **verifica su checksum SHA-256** e instala `molt` en `/usr/local/bin` (o en `~/.local/bin` si no es escribible). Usa `MOLT_VERSION` o `MOLT_INSTALL_DIR` para cambiar los valores por defecto. Si prefieres leerlo antes, está en [`install.sh`](install.sh).
+
+### Windows, Linux y macOS (Go)
 
 ```sh
 go install github.com/jossssdl/molt/cmd/molt@latest
 ```
 
-O compilar desde el código fuente:
+Requiere Go 1.24+.
+
+### Binarios precompilados
+
+Descarga el archivo de tu sistema desde el [último release](https://github.com/jossssdl/molt/releases/latest) y coloca `molt` en algún directorio del `PATH`. Cada release incluye `checksums.txt`.
+
+| Sistema | Archivo |
+| --- | --- |
+| Windows (x64 / ARM64) | `molt_<versión>_windows_amd64.zip` / `molt_<versión>_windows_arm64.zip` |
+| macOS, Apple Silicon | `molt_<versión>_darwin_arm64.tar.gz` |
+| macOS, Intel | `molt_<versión>_darwin_amd64.tar.gz` |
+| Linux (x64 / ARM64) | `molt_<versión>_linux_amd64.tar.gz` / `molt_<versión>_linux_arm64.tar.gz` |
+
+### Desde el código fuente
 
 ```sh
 git clone https://github.com/jossssdl/molt
@@ -107,6 +141,8 @@ molt -dry-run=false -root ~/proyectos   # borra de verdad (aún pide confirmaci�
 | ratón | Clic en una fila para seleccionarla, rueda para desplazarse |
 
 ## Desarrollo
+
+Para probar molt de forma segura (incluido el borrado real) ejecuta `go run ./scripts/sandbox`: crea un escenario desechable en `.sandbox/` e indica cómo lanzar molt contra él con un directorio home falso. Los cambios se registran en [CHANGELOG.md](CHANGELOG.md).
 
 ```sh
 go build ./...

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,8 +95,8 @@ func (c *Cleaner) clean(ctx context.Context, r scanner.ScanResult, locs *locatio
 		out.DryRun = true
 		return out
 	}
-	// RemoveAll removes a symlink itself rather than its destination.
-	if err := os.RemoveAll(r.Path); err != nil {
+	// removeAll deletes a symlink itself rather than its destination.
+	if err := removeAll(r.Path); err != nil {
 		out.Err = err
 		return out
 	}
@@ -163,6 +164,33 @@ func (c *Cleaner) check(r scanner.ScanResult, locs *locations) error {
 		case !r.Git.Safe():
 			return refuse("git: %s", strings.Join(r.Git.Reasons(), ", "))
 		}
+	}
+	return nil
+}
+
+// removeAll deletes path recursively. If that fails (typically read-only
+// files on Windows, or read-only directories elsewhere) it clears the
+// restrictive permissions inside path and retries once. Symlinks are never
+// followed, neither when deleting nor when fixing permissions, so a link
+// inside the target (for example into a pnpm store) cannot cause anything
+// outside the target to be modified or removed.
+func removeAll(path string) error {
+	err := os.RemoveAll(path)
+	if err == nil {
+		return nil
+	}
+	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil && d == nil {
+			return nil
+		}
+		if d != nil && d.Type()&fs.ModeSymlink != 0 {
+			return nil // chmod would follow the link
+		}
+		_ = os.Chmod(p, 0o700)
+		return nil
+	})
+	if retry := os.RemoveAll(path); retry != nil {
+		return retry
 	}
 	return nil
 }

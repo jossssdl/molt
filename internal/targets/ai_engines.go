@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -206,4 +207,78 @@ func UvCache() Target {
 	return locationTarget{name: "uv cache", resolve: func() ([]string, error) {
 		return existingDirs(uvCacheDirs(os.Getenv, userHome(), goos))
 	}}
+}
+
+// vllmCacheDirs lists candidate vLLM cache directories: VLLM_CACHE_ROOT,
+// $XDG_CACHE_HOME/vllm and ~/.cache/vllm. vLLM does not run natively on
+// Windows, so nothing is reported there.
+func vllmCacheDirs(env envFunc, home, goos string) []string {
+	if goos == "windows" {
+		return nil
+	}
+	var c []string
+	if v := env("VLLM_CACHE_ROOT"); v != "" {
+		c = append(c, v)
+	}
+	if v := env("XDG_CACHE_HOME"); v != "" {
+		c = append(c, filepath.Join(v, "vllm"))
+	}
+	if home != "" {
+		c = append(c, filepath.Join(home, ".cache", "vllm"))
+	}
+	return c
+}
+
+// VllmCache is the vLLM cache (compiled artifacts and downloaded assets).
+func VllmCache() Target {
+	return locationTarget{name: "vllm cache", resolve: func() ([]string, error) {
+		return existingDirs(vllmCacheDirs(os.Getenv, userHome(), goos))
+	}}
+}
+
+// xcodeDerivedDataDir is ~/Library/Developer/Xcode/DerivedData on macOS and ""
+// everywhere else.
+func xcodeDerivedDataDir(home, goos string) string {
+	if goos != "darwin" || home == "" {
+		return ""
+	}
+	return filepath.Join(home, "Library", "Developer", "Xcode", "DerivedData")
+}
+
+// xcodeProjects returns the per-project directories inside a DerivedData
+// directory, skipping hidden entries and plain files.
+func xcodeProjects(dir string) []string {
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			out = append(out, filepath.Join(dir, e.Name()))
+		}
+	}
+	return out
+}
+
+// xcodeHash matches the "-<28 lowercase letters>" suffix Xcode appends to the
+// project name.
+var xcodeHash = regexp.MustCompile(`-[a-z]{28}$`)
+
+// XcodeDerivedData reports each project folder of Xcode's DerivedData (macOS
+// only; build products and indexes that Xcode regenerates).
+func XcodeDerivedData() Target {
+	return locationTarget{
+		name:     "xcode derived",
+		category: CategoryDev,
+		resolve: func() ([]string, error) {
+			return xcodeProjects(xcodeDerivedDataDir(userHome(), goos)), nil
+		},
+		label: func(p string) string {
+			return "Xcode DerivedData: " + xcodeHash.ReplaceAllString(filepath.Base(p), "")
+		},
+	}
 }
