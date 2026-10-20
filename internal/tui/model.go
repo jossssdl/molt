@@ -1,5 +1,6 @@
-// Package tui is the interactive Bubbletea front-end: a sortable table of
-// scan results with safety badges, multi-select and a reclaimable-space bar.
+// Package tui is the interactive Bubbletea front-end: a filterable, sortable
+// table of scan results with safety badges, multi-select (keyboard and mouse)
+// and a reclaimable-space bar.
 package tui
 
 import (
@@ -13,6 +14,7 @@ import (
 
 	"github.com/jossssdl/molt/internal/cleaner"
 	"github.com/jossssdl/molt/internal/scanner"
+	"github.com/jossssdl/molt/internal/targets"
 )
 
 type sortKey int
@@ -22,6 +24,19 @@ const (
 	sortInactivity
 )
 
+type filter int
+
+const (
+	filterAll filter = iota
+	filterSafe
+	filterRisky
+	filterDev
+	filterAI
+	numFilters
+)
+
+var filterNames = [numFilters]string{"All", "Safe", "Risky", "Dev", "AI"}
+
 type mode int
 
 const (
@@ -30,9 +45,17 @@ const (
 	modeDeleting
 )
 
+// Layout constants shared by Update (mouse hit-testing) and View.
+const (
+	headerLines = 5 // title, stats, bar, filters, column header
+	footerLines = 5 // separator, 2 detail lines, status, help
+	firstRowY   = headerLines
+)
+
 type (
 	resultMsg   scanner.ScanResult
 	scanDoneMsg struct{}
+	tickMsg     time.Time
 	cleanedMsg  []cleaner.Outcome
 )
 
@@ -43,18 +66,23 @@ type Model struct {
 	cleaner *cleaner.Cleaner
 	dryRun  bool
 
-	items    []scanner.ScanResult
+	items    []scanner.ScanResult // every result, sorted
+	shown    []int                // indices into items that pass the filter
 	selected map[string]bool
-	cursor   int
+	cursor   int // index into shown
 	offset   int
 	sortBy   sortKey
+	filter   filter
 	mode     mode
 	scanning bool
-	status   string
+	needSort bool
+
+	status  string
+	statusT time.Time
+	freed   int64
 
 	spin          spinner.Model
 	width, height int
-	freed         int64
 	now           func() time.Time
 }
 
@@ -76,9 +104,13 @@ func New(ctx context.Context, results <-chan scanner.ScanResult, c *cleaner.Clea
 	}
 }
 
-// Init starts the spinner and the result stream.
+// Init starts the spinner, the re-sort ticker and the result stream.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, waitForResult(m.results))
+	return tea.Batch(m.spin.Tick, tick(), waitForResult(m.results))
+}
+
+func tick() tea.Cmd {
+	return tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func waitForResult(ch <-chan scanner.ScanResult) tea.Cmd {
@@ -102,10 +134,26 @@ func activity(r scanner.ScanResult) time.Time {
 	return t
 }
 
-func (m *Model) sortItems() {
+func passes(f filter, r scanner.ScanResult) bool {
+	switch f {
+	case filterSafe:
+		return r.Safety() == scanner.SafetySafe
+	case filterRisky:
+		return r.Safety() != scanner.SafetySafe
+	case filterDev:
+		return r.Target.Category() == targets.CategoryDev
+	case filterAI:
+		return r.Target.Category() == targets.CategoryAI
+	}
+	return true
+}
+
+// refresh re-sorts items, recomputes the filtered view and keeps the cursor on
+// the same path when possible.
+func (m *Model) refresh() {
 	cur := ""
-	if m.cursor < len(m.items) {
-		cur = m.items[m.cursor].Path
+	if it, ok := m.cur(); ok {
+		cur = it.Path
 	}
 	sort.SliceStable(m.items, func(i, j int) bool {
 		a, b := m.items[i], m.items[j]
@@ -123,38 +171,59 @@ func (m *Model) sortItems() {
 		}
 		return a.Path < b.Path
 	})
+	m.shown = m.shown[:0]
 	for i, it := range m.items {
-		if it.Path == cur {
-			m.cursor = i
+		if passes(m.filter, it) {
+			m.shown = append(m.shown, i)
+		}
+	}
+	m.cursor = clamp(m.cursor, 0, len(m.shown)-1)
+	for k, idx := range m.shown {
+		if m.items[idx].Path == cur {
+			m.cursor = k
 			break
 		}
 	}
-	m.clampScroll()
+	m.needSort = false
+	m.scroll()
 }
 
-func (m *Model) clampScroll() {
-	rows := m.visibleRows()
+func clamp(v, lo, hi int) int {
+	if hi < lo {
+		return lo
+	}
+	return max(lo, min(hi, v))
+}
+
+func (m Model) cur() (scanner.ScanResult, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.shown) {
+		return scanner.ScanResult{}, false
+	}
+	return m.items[m.shown[m.cursor]], true
+}
+
+func (m Model) rows() int { return max(3, m.height-headerLines-footerLines) }
+
+func (m *Model) scroll() {
+	rows := m.rows()
 	if m.cursor < m.offset {
 		m.offset = m.cursor
 	}
 	if m.cursor >= m.offset+rows {
 		m.offset = m.cursor - rows + 1
 	}
-	if m.offset < 0 {
-		m.offset = 0
-	}
+	m.offset = clamp(m.offset, 0, max(0, len(m.shown)-rows))
 }
 
-// visibleRows is the number of table rows that fit under the header and above
-// the footer.
-func (m Model) visibleRows() int {
-	if r := m.height - 9; r > 3 {
-		return r
-	}
-	return 3
+func (m *Model) move(delta int) {
+	m.cursor = clamp(m.cursor+delta, 0, len(m.shown)-1)
+	m.scroll()
 }
 
-func selectable(r scanner.ScanResult) bool { return r.Safety() == scanner.SafetySafe }
+func (m *Model) toast(format string, a ...any) {
+	m.status = fmt.Sprintf(format, a...)
+	m.statusT = m.now()
+}
 
 func (m Model) selectedItems() []scanner.ScanResult {
 	var out []scanner.ScanResult
@@ -173,34 +242,77 @@ func sumBytes(items []scanner.ScanResult) (n int64) {
 	return n
 }
 
+func (m *Model) toggle(it scanner.ScanResult) {
+	if m.selected[it.Path] {
+		delete(m.selected, it.Path)
+	} else {
+		m.selected[it.Path] = true
+	}
+}
+
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.clampScroll()
+		m.scroll()
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
 
+	case tickMsg:
+		if m.needSort {
+			m.refresh()
+		}
+		if m.status != "" && m.mode == modeBrowse && m.now().Sub(m.statusT) > 6*time.Second {
+			m.status = ""
+		}
+		return m, tick()
+
 	case resultMsg:
 		m.items = append(m.items, scanner.ScanResult(msg))
-		m.sortItems()
+		m.needSort = true
 		return m, waitForResult(m.results)
 
 	case scanDoneMsg:
 		m.scanning = false
+		m.refresh()
 
 	case cleanedMsg:
 		m.mode = modeBrowse
 		m.applyOutcomes(msg)
 
+	case tea.MouseMsg:
+		return m.handleMouse(msg), nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+func (m Model) handleMouse(e tea.MouseMsg) Model {
+	if m.mode != modeBrowse {
+		return m
+	}
+	switch {
+	case e.Button == tea.MouseButtonWheelUp:
+		m.move(-3)
+	case e.Button == tea.MouseButtonWheelDown:
+		m.move(3)
+	case e.Button == tea.MouseButtonLeft && e.Action == tea.MouseActionPress:
+		row := e.Y - firstRowY
+		if row < 0 || row >= m.rows() {
+			return m
+		}
+		if idx := m.offset + row; idx < len(m.shown) {
+			m.cursor = idx
+			m.toggle(m.items[m.shown[idx]])
+		}
+	}
+	return m
 }
 
 func (m *Model) applyOutcomes(outs []cleaner.Outcome) {
@@ -218,33 +330,40 @@ func (m *Model) applyOutcomes(outs []cleaner.Outcome) {
 			done++
 			m.freed += o.Bytes
 			removed[o.Path] = true
+			delete(m.selected, o.Path)
 		case o.DryRun:
 			done++
 			m.freed += o.Bytes
+			delete(m.selected, o.Path)
 		}
 	}
 	kept := m.items[:0]
 	for _, it := range m.items {
-		if removed[it.Path] {
-			delete(m.selected, it.Path)
-			continue
+		if !removed[it.Path] {
+			kept = append(kept, it)
 		}
-		kept = append(kept, it)
 	}
 	m.items = kept
-	if m.cursor >= len(m.items) {
-		m.cursor = max(0, len(m.items)-1)
-	}
-	m.clampScroll()
+	m.refresh()
 
 	verb := "freed"
 	if m.dryRun {
-		verb = "would free (dry-run)"
+		verb = "would free (dry-run, nothing deleted)"
 	}
-	m.status = fmt.Sprintf("%d item(s) processed, %s %s", done, verb, scanner.FormatBytes(m.freed))
+	m.toast("%d item(s) processed — %s %s", done, verb, scanner.FormatBytes(m.freed))
 	if failed > 0 {
-		m.status += fmt.Sprintf("; %d failed: %v", failed, firstErr)
+		m.toast("%s; %d failed: %v", m.status, failed, firstErr)
 	}
+}
+
+func (m Model) riskyCount(items []scanner.ScanResult) int {
+	n := 0
+	for _, it := range items {
+		if it.Safety() != scanner.SafetySafe {
+			n++
+		}
+	}
+	return n
 }
 
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -257,76 +376,107 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeDeleting:
 		return m, nil
 	case modeConfirm:
-		if s == "y" || s == "Y" {
-			m.mode = modeDeleting
-			m.status = "deleting..."
-			return m, m.cleanCmd(m.selectedItems())
-		}
-		m.mode = modeBrowse
-		m.status = "cancelled"
-		return m, nil
+		return m.confirmKey(s)
 	}
 
-	m.status = ""
 	switch s {
 	case "q", "esc":
 		return m, tea.Quit
 	case "up", "k":
-		m.cursor = max(0, m.cursor-1)
+		m.move(-1)
 	case "down", "j":
-		m.cursor = min(len(m.items)-1, m.cursor+1)
-		m.cursor = max(0, m.cursor)
+		m.move(1)
 	case "pgup":
-		m.cursor = max(0, m.cursor-m.visibleRows())
+		m.move(-m.rows())
 	case "pgdown":
-		m.cursor = max(0, min(len(m.items)-1, m.cursor+m.visibleRows()))
+		m.move(m.rows())
 	case "home", "g":
-		m.cursor = 0
+		m.move(-len(m.shown))
 	case "end", "G":
-		m.cursor = max(0, len(m.items)-1)
-	case " ", "x":
-		if len(m.items) > 0 {
-			it := m.items[m.cursor]
-			switch {
-			case !selectable(it):
-				m.status = "not selectable: " + it.Safety().String() + " " + it.Detail()
-			case m.selected[it.Path]:
-				delete(m.selected, it.Path)
-			default:
+		m.move(len(m.shown))
+	case " ", "x", "space":
+		if it, ok := m.cur(); ok {
+			m.toggle(it)
+			m.move(1) // advance so holding space sweeps down the list
+		}
+	case "a": // every SAFE item in view
+		for _, idx := range m.shown {
+			if it := m.items[idx]; it.Safety() == scanner.SafetySafe {
 				m.selected[it.Path] = true
 			}
 		}
-	case "a":
-		for _, it := range m.items {
-			if selectable(it) {
-				m.selected[it.Path] = true
-			}
+	case "A": // everything in view, risky included
+		for _, idx := range m.shown {
+			m.selected[m.items[idx].Path] = true
 		}
 	case "n":
 		m.selected = make(map[string]bool)
 	case "s":
 		m.sortBy = sortSize
-		m.sortItems()
+		m.refresh()
 	case "i":
 		m.sortBy = sortInactivity
-		m.sortItems()
+		m.refresh()
+	case "tab", "f", "right", "l":
+		m.filter = (m.filter + 1) % numFilters
+		m.refresh()
+	case "shift+tab", "left", "h":
+		m.filter = (m.filter + numFilters - 1) % numFilters
+		m.refresh()
+	case "1", "2", "3", "4", "5":
+		m.filter = filter(s[0] - '1')
+		m.refresh()
 	case "d", "enter":
 		if len(m.selected) == 0 {
-			m.status = "nothing selected (space to select, a for all SAFE)"
+			m.toast("Nothing selected — press space on an item (or 'a' for all SAFE)")
 		} else {
 			m.mode = modeConfirm
 		}
 	}
-	m.clampScroll()
 	return m, nil
 }
 
-func (m Model) cleanCmd(items []scanner.ScanResult) tea.Cmd {
-	return func() tea.Msg { return cleanedMsg(m.cleaner.CleanAll(m.ctx, items)) }
+func (m Model) confirmKey(s string) (tea.Model, tea.Cmd) {
+	items := m.selectedItems()
+	risky := m.riskyCount(items)
+	switch {
+	case s == "y" && risky == 0, s == "f" && risky > 0:
+		m.mode = modeDeleting
+		m.toast("Working…")
+		return m, m.cleanCmd(items, risky > 0)
+	case s == "y" && risky > 0: // delete only what is SAFE
+		var safe []scanner.ScanResult
+		for _, it := range items {
+			if it.Safety() == scanner.SafetySafe {
+				safe = append(safe, it)
+			}
+		}
+		if len(safe) == 0 {
+			m.mode = modeBrowse
+			m.toast("Nothing SAFE in the selection — use 'f' to force or 'n' to cancel")
+			return m, nil
+		}
+		m.mode = modeDeleting
+		m.toast("Working…")
+		return m, m.cleanCmd(safe, false)
+	}
+	m.mode = modeBrowse
+	m.toast("Cancelled")
+	return m, nil
+}
+
+func (m Model) cleanCmd(items []scanner.ScanResult, force bool) tea.Cmd {
+	c := m.cleaner
+	if force {
+		c = c.WithAllowDirty()
+	}
+	ctx := m.ctx
+	return func() tea.Msg { return cleanedMsg(c.CleanAll(ctx, items)) }
 }
 
 // Run starts the program and blocks until the user quits.
 func Run(ctx context.Context, results <-chan scanner.ScanResult, c *cleaner.Cleaner, dryRun bool) error {
-	_, err := tea.NewProgram(New(ctx, results, c, dryRun), tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	_, err := tea.NewProgram(New(ctx, results, c, dryRun),
+		tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx)).Run()
 	return err
 }

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -11,30 +12,52 @@ import (
 )
 
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
-	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
-	cursorStyle = lipgloss.NewStyle().Background(lipgloss.Color("237"))
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	safeBadge   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("42")).Padding(0, 1)
-	dirtyBadge  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("203")).Padding(0, 1)
-	unkBadge    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("214")).Padding(0, 1)
-	warnStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214"))
-	barFull     = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	barSel      = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
-	barEmpty    = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	accent = lipgloss.Color("141")
+	green  = lipgloss.Color("42")
+	red    = lipgloss.Color("203")
+	amber  = lipgloss.Color("214")
+	gray   = lipgloss.Color("241")
+
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(accent).Padding(0, 1)
+	modeStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(amber).Padding(0, 1)
+	liveStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(red).Padding(0, 1)
+	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Background(lipgloss.Color("236"))
+	cursorBg    = lipgloss.NewStyle().Background(lipgloss.Color("238"))
+	dimStyle    = lipgloss.NewStyle().Foreground(gray)
+	boldStyle   = lipgloss.NewStyle().Bold(true)
+	warnStyle   = lipgloss.NewStyle().Bold(true).Foreground(amber)
+	okStyle     = lipgloss.NewStyle().Foreground(green)
+	badStyle    = lipgloss.NewStyle().Foreground(red)
+	tabOn       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(accent).Padding(0, 1)
+	tabOff      = lipgloss.NewStyle().Foreground(gray).Padding(0, 1)
+
+	safeBadge  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(green)
+	dirtyBadge = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(red)
+	unkBadge   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(amber)
 )
 
-const badgeWidth = 11 // "DIRTY GIT" + padding
+// Column widths (cells). The badge column is fixed so rows align.
+const (
+	wMark  = 2
+	wCheck = 2
+	wSize  = 10
+	wBadge = 11
+	wType  = 13
+	wIdle  = 6
+)
 
 func badge(r scanner.ScanResult) string {
+	var text string
+	var st lipgloss.Style
 	switch r.Safety() {
 	case scanner.SafetySafe:
-		return safeBadge.Render("SAFE")
+		text, st = "SAFE", safeBadge
 	case scanner.SafetyDirtyGit:
-		return dirtyBadge.Render("DIRTY GIT")
+		text, st = "DIRTY GIT", dirtyBadge
 	default:
-		return unkBadge.Render("UNKNOWN")
+		text, st = "UNKNOWN", unkBadge
 	}
+	return st.Render(" " + pad(text, wBadge-2) + " ")
 }
 
 // ago renders a coarse "time since" such as "3d" or "5mo".
@@ -57,11 +80,14 @@ func ago(t, now time.Time) string {
 	}
 }
 
-// truncLeft keeps the tail of a path (the informative part) within w cells.
-func truncLeft(s string, w int) string {
-	r := []rune(s)
+// shorten replaces the home directory with ~ and keeps the tail of long paths.
+func shorten(p string, w int) string {
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home) {
+		p = "~" + p[len(home):]
+	}
+	r := []rune(p)
 	if w <= 1 || len(r) <= w {
-		return s
+		return p
 	}
 	return "…" + string(r[len(r)-(w-1):])
 }
@@ -73,123 +99,192 @@ func pad(s string, w int) string {
 	return s
 }
 
-// bar draws total capacity split into selected / other safe / unsafe.
-func bar(width int, selected, safe, total int64) string {
-	if total <= 0 || width < 4 {
-		return strings.Repeat("░", max(width, 0))
+func padLeft(s string, w int) string {
+	if n := w - lipgloss.Width(s); n > 0 {
+		return strings.Repeat(" ", n) + s
 	}
-	cells := func(v int64) int { return int(float64(v) / float64(total) * float64(width)) }
-	sel := cells(selected)
-	other := max(0, cells(safe)-sel)
-	rest := max(0, width-sel-other)
-	return barSel.Render(strings.Repeat("█", sel)) +
-		barFull.Render(strings.Repeat("█", other)) +
-		barEmpty.Render(strings.Repeat("░", rest))
+	return s
 }
 
-// View renders the whole screen.
-func (m Model) View() string {
-	var b strings.Builder
-
-	mode := "DRY-RUN"
-	if !m.dryRun {
-		mode = "LIVE"
-	}
-	title := titleStyle.Render("molt") + dimStyle.Render("  mode: "+mode)
-	if m.scanning {
-		title += "  " + m.spin.View() + dimStyle.Render(fmt.Sprintf("scanning… %d found", len(m.items)))
-	}
-	b.WriteString(title + "\n\n")
-
-	const (
-		sizeW, idleW, tgtW = 10, 6, 14
-		checkW             = 4
-	)
-	pathW := max(10, m.width-checkW-sizeW-badgeWidth-tgtW-idleW-6)
-
-	sortMark := func(k sortKey) string {
-		if m.sortBy == k {
-			return "▼"
-		}
+// bar draws capacity split into selected / other safe / rest.
+func bar(width int, selected, safe, total int64) string {
+	if width < 4 {
 		return ""
 	}
-	b.WriteString(headerStyle.Render(
-		pad("", checkW)+pad("SIZE"+sortMark(sortSize), sizeW)+pad("STATUS", badgeWidth+1)+
-			pad("TARGET", tgtW)+pad("IDLE"+sortMark(sortInactivity), idleW)+" PATH") + "\n")
+	if total <= 0 {
+		return dimStyle.Render(strings.Repeat("░", width))
+	}
+	cells := func(v int64) int { return int(float64(v) / float64(total) * float64(width)) }
+	sel := min(width, cells(selected))
+	other := max(0, min(width-sel, cells(safe)-sel))
+	rest := width - sel - other
+	return lipgloss.NewStyle().Foreground(accent).Render(strings.Repeat("█", sel)) +
+		okStyle.Render(strings.Repeat("█", other)) +
+		dimStyle.Render(strings.Repeat("░", rest))
+}
 
-	now := m.now()
-	rows := m.visibleRows()
-	end := min(len(m.items), m.offset+rows)
-	for i := m.offset; i < end; i++ {
-		it := m.items[i]
-		check := "[ ] "
-		switch {
-		case m.selected[it.Path]:
-			check = "[x] "
-		case !selectable(it):
-			check = " -  "
-		}
-		line := check + pad(scanner.FormatBytes(it.SizeBytes), sizeW) +
-			pad(badge(it), badgeWidth+1) + pad(it.Target.Name(), tgtW) +
-			pad(ago(activity(it), now), idleW) + " " + truncLeft(it.Path, pathW)
-		if i == m.cursor {
-			line = cursorStyle.Render(pad(line, m.width))
-		}
-		b.WriteString(line + "\n")
-	}
-	if len(m.items) == 0 {
-		msg := "no reclaimable items found yet"
-		if !m.scanning {
-			msg = "nothing to clean"
-		}
-		b.WriteString(dimStyle.Render("  "+msg) + "\n")
-	}
-	for i := end - m.offset; i < rows && len(m.items) > 0; i++ {
-		b.WriteString("\n")
-	}
+// View renders the whole screen. Every line is clipped to the terminal width
+// and the output never exceeds the terminal height, so nothing wraps or
+// scrolls the header off screen.
+func (m Model) View() string {
+	w := max(40, m.width)
+	lines := make([]string, 0, m.height)
+	add := func(s string) { lines = append(lines, s) }
 
-	// Footer: details of the cursor item, space bar, status, help.
-	b.WriteString("\n")
-	if len(m.items) > 0 {
-		it := m.items[m.cursor]
-		detail := it.Path
-		if d := it.Detail(); d != "" {
-			detail += "  —  " + d
-		}
-		if it.Err != nil {
-			detail += "  (partial: " + it.Err.Error() + ")"
-		}
-		b.WriteString(dimStyle.Render(truncLeft(detail, m.width-1)) + "\n")
+	// 1. title
+	title := titleStyle.Render("molt")
+	if m.dryRun {
+		title += " " + modeStyle.Render("DRY-RUN")
 	} else {
-		b.WriteString("\n")
+		title += " " + liveStyle.Render("LIVE")
 	}
+	if m.scanning {
+		title += "  " + m.spin.View() + dimStyle.Render(fmt.Sprintf("scanning… %d found", len(m.items)))
+	} else {
+		title += "  " + dimStyle.Render(fmt.Sprintf("scan complete · %d found", len(m.items)))
+	}
+	add(title)
 
+	// 2. numbers
 	var total, safe int64
+	counts := [numFilters]int{}
 	for _, it := range m.items {
 		total += it.SizeBytes
-		if selectable(it) {
+		if it.Safety() == scanner.SafetySafe {
 			safe += it.SizeBytes
 		}
-	}
-	sel := sumBytes(m.selectedItems())
-	barW := max(10, min(40, m.width-60))
-	b.WriteString(fmt.Sprintf("%s  selected %s · safe %s · total %s\n",
-		bar(barW, sel, safe, total), scanner.FormatBytes(sel),
-		scanner.FormatBytes(safe), scanner.FormatBytes(total)))
-
-	switch {
-	case m.mode == modeConfirm:
-		verb := "DELETE"
-		if m.dryRun {
-			verb = "simulate deleting"
+		for f := filterAll; f < numFilters; f++ {
+			if passes(f, it) {
+				counts[f]++
+			}
 		}
-		b.WriteString(warnStyle.Render(fmt.Sprintf("%s %d item(s), %s? [y/N]",
-			verb, len(m.selected), scanner.FormatBytes(sel))) + "\n")
-	case m.status != "":
-		b.WriteString(warnStyle.Render(m.status) + "\n")
-	default:
-		b.WriteString("\n")
 	}
-	b.WriteString(dimStyle.Render("↑/↓ move · space select · a all SAFE · n none · s size · i idle · d delete · q quit"))
-	return b.String()
+	selItems := m.selectedItems()
+	sel := sumBytes(selItems)
+	add(fmt.Sprintf("%s %s  %s %s  %s %s  %s",
+		dimStyle.Render("total"), boldStyle.Render(scanner.FormatBytes(total)),
+		dimStyle.Render("reclaimable (SAFE)"), okStyle.Bold(true).Render(scanner.FormatBytes(safe)),
+		dimStyle.Render("selected"), lipgloss.NewStyle().Bold(true).Foreground(accent).Render(scanner.FormatBytes(sel)),
+		dimStyle.Render(fmt.Sprintf("(%d items)", len(selItems)))))
+
+	// 3. bar
+	add(bar(min(w-1, 80), sel, safe, total))
+
+	// 4. filter tabs
+	var tabs []string
+	for f := filterAll; f < numFilters; f++ {
+		label := fmt.Sprintf("%d %s %d", int(f)+1, filterNames[f], counts[f])
+		if f == m.filter {
+			tabs = append(tabs, tabOn.Render(label))
+		} else {
+			tabs = append(tabs, tabOff.Render(label))
+		}
+	}
+	sortName := "size"
+	if m.sortBy == sortInactivity {
+		sortName = "idle time"
+	}
+	add(strings.Join(tabs, "") + dimStyle.Render("  sort: "+sortName))
+
+	// 5. column header
+	pathW := max(10, w-wMark-wCheck-wSize-wBadge-wType-wIdle-6)
+	add(headerStyle.Render(pad("", wMark+wCheck) + padLeft("SIZE", wSize) + "  " + pad("STATUS", wBadge) +
+		pad("TYPE", wType) + padLeft("IDLE", wIdle) + "  " + pad("PATH", pathW+2)))
+
+	// rows
+	now := m.now()
+	rows := m.rows()
+	if len(m.shown) == 0 {
+		msg := "Scanning… results appear here as they are found."
+		if !m.scanning {
+			msg = "Nothing in this view. Press tab or 1-5 to change the filter."
+		}
+		add(dimStyle.Render("  " + msg))
+	}
+	end := min(len(m.shown), m.offset+rows)
+	for k := m.offset; k < end; k++ {
+		it := m.items[m.shown[k]]
+		mark, check := "  ", "○ "
+		if m.selected[it.Path] {
+			check = okStyle.Bold(true).Render("● ")
+		}
+		if k == m.cursor {
+			mark = lipgloss.NewStyle().Foreground(accent).Bold(true).Render("▌ ")
+		}
+		line := mark + check + padLeft(scanner.FormatBytes(it.SizeBytes), wSize) + "  " +
+			badge(it) + " " + pad(it.Target.Name(), wType) +
+			padLeft(ago(activity(it), now), wIdle) + "  " + shorten(it.Path, pathW)
+		line = lipgloss.NewStyle().MaxWidth(w).Render(line)
+		if k == m.cursor {
+			line = cursorBg.Render(pad(line, w))
+		}
+		add(line)
+	}
+	for len(lines) < headerLines+rows {
+		add("")
+	}
+
+	// footer: separator, detail x2, status, help
+	add(dimStyle.Render(strings.Repeat("─", w-1)))
+	if it, ok := m.cur(); ok {
+		add(boldStyle.Render(shorten(it.Path, w-2)))
+		add(detailLine(it))
+	} else {
+		add("")
+		add("")
+	}
+	add(m.statusLine())
+	add(dimStyle.Render("↑↓ move · space select · a all SAFE · A all · n none · tab filter · s/i sort · d delete · q quit · mouse ok"))
+
+	for i, l := range lines {
+		lines[i] = lipgloss.NewStyle().MaxWidth(w).Render(l)
+	}
+	if len(lines) > m.height && m.height > 0 {
+		lines = lines[:m.height]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func detailLine(it scanner.ScanResult) string {
+	var parts []string
+	switch it.Safety() {
+	case scanner.SafetySafe:
+		switch {
+		case it.Git != nil && it.Git.IsRepo:
+			parts = append(parts, okStyle.Render("git: clean and pushed"))
+		case it.Git != nil:
+			parts = append(parts, okStyle.Render("not inside a git repository"))
+		default:
+			parts = append(parts, okStyle.Render("no git check needed"))
+		}
+	default:
+		parts = append(parts, badStyle.Render("git: "+it.Detail()))
+	}
+	parts = append(parts, fmt.Sprintf("%d files", it.FileCount))
+	if it.Err != nil {
+		parts = append(parts, warnStyle.Render("partial size: "+it.Err.Error()))
+	}
+	return strings.Join(parts, dimStyle.Render(" · "))
+}
+
+func (m Model) statusLine() string {
+	if m.mode == modeConfirm {
+		items := m.selectedItems()
+		risky := m.riskyCount(items)
+		verb := "Delete"
+		if m.dryRun {
+			verb = "Simulate deleting"
+		}
+		size := scanner.FormatBytes(sumBytes(items))
+		if risky == 0 {
+			return warnStyle.Render(fmt.Sprintf("%s %d item(s), %s?  [y] yes · [n] cancel", verb, len(items), size))
+		}
+		return warnStyle.Render(fmt.Sprintf(
+			"%d of %d selected are DIRTY/UNKNOWN.  [y] only the %d SAFE · [f] ALL %d (%s) · [n] cancel",
+			risky, len(items), len(items)-risky, len(items), size))
+	}
+	if m.status != "" {
+		return warnStyle.Render(m.status)
+	}
+	return ""
 }

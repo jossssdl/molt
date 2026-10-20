@@ -41,6 +41,14 @@ func New(opts Options) *Cleaner { return &Cleaner{opts: opts} }
 // ErrUnsafe is wrapped by every refusal so callers can tell it from I/O errors.
 var ErrUnsafe = errors.New("refusing to delete")
 
+// WithAllowDirty returns a copy that also deletes results whose Git state is
+// not SAFE. Callers must have obtained explicit user consent first.
+func (c *Cleaner) WithAllowDirty() *Cleaner {
+	o := c.opts
+	o.AllowDirty = true
+	return &Cleaner{opts: o}
+}
+
 // Clean removes one scan result, or only reports it under DryRun.
 func (c *Cleaner) Clean(ctx context.Context, r scanner.ScanResult) Outcome {
 	out := Outcome{Path: r.Path, Bytes: r.SizeBytes}
