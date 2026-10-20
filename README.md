@@ -42,8 +42,14 @@ In short: *free the most space with the least risk of losing work.*
 | `target` | next to `Cargo.toml` or `pom.xml` |
 | `.next` | next to `package.json` |
 | Hugging Face models / datasets | each `models--*` and `datasets--*` folder in the hub cache (`HF_HUB_CACHE`, `HF_HOME/hub`, `~/.cache/huggingface/hub`), listed as e.g. `HF Model: org/name` (`-ai-caches`) |
+| llama.cpp models | each `*.gguf` (and stale `.partial` downloads) in `LLAMA_CACHE`, `~/.cache/llama.cpp`, `~/Library/Caches/llama.cpp` (macOS) or `%LOCALAPPDATA%\llama.cpp` (Windows) (`-ai-caches`) |
+| LM Studio models | each `<publisher>/<model>` folder in `~/.lmstudio/models` and `~/.cache/lm-studio/models` (`-ai-caches`) |
+| PyTorch hub | `$TORCH_HOME/hub`, `~/.cache/torch/hub` (`-ai-caches`) |
+| uv cache | `UV_CACHE_DIR`, `~/.cache/uv`, `%LOCALAPPDATA%\uv\cache` (Windows) (`-ai-caches`) |
 | pip cache | `PIP_CACHE_DIR`, `~/.cache/pip`, `%LOCALAPPDATA%\pip\Cache` (`-ai-caches`) |
 | Ollama orphan blobs | `sha256-*` blobs not referenced by any manifest in `OLLAMA_MODELS` or `~/.ollama/models` (`-ai-caches`) |
+
+The TUI shows `⚠ N paths skipped (permission/error)` in its status bar when the scan could not read some folders.
 
 Orphan detection refuses to guess: if the Ollama manifests are missing or unreadable, nothing is reported.
 

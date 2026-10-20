@@ -42,8 +42,14 @@ En resumen: *liberar el máximo espacio con el mínimo riesgo de perder trabajo.
 | `target` | junto a `Cargo.toml` o `pom.xml` |
 | `.next` | junto a `package.json` |
 | Modelos / datasets de Hugging Face | cada carpeta `models--*` y `datasets--*` de la caché del hub (`HF_HUB_CACHE`, `HF_HOME/hub`, `~/.cache/huggingface/hub`), listados como `HF Model: org/name` (`-ai-caches`) |
+| Modelos de llama.cpp | cada `*.gguf` (y descargas `.partial` abandonadas) en `LLAMA_CACHE`, `~/.cache/llama.cpp`, `~/Library/Caches/llama.cpp` (macOS) o `%LOCALAPPDATA%\llama.cpp` (Windows) (`-ai-caches`) |
+| Modelos de LM Studio | cada carpeta `<publisher>/<model>` en `~/.lmstudio/models` y `~/.cache/lm-studio/models` (`-ai-caches`) |
+| PyTorch hub | `$TORCH_HOME/hub`, `~/.cache/torch/hub` (`-ai-caches`) |
+| Caché de uv | `UV_CACHE_DIR`, `~/.cache/uv`, `%LOCALAPPDATA%\uv\cache` (Windows) (`-ai-caches`) |
 | Caché de pip | `PIP_CACHE_DIR`, `~/.cache/pip`, `%LOCALAPPDATA%\pip\Cache` (`-ai-caches`) |
 | Blobs huérfanos de Ollama | blobs `sha256-*` que ningún manifest referencia, en `OLLAMA_MODELS` o `~/.ollama/models` (`-ai-caches`) |
+
+La TUI muestra `⚠ N paths skipped (permission/error)` en la barra de estado cuando el escaneo no pudo leer algunas carpetas.
 
 La detección de huérfanos no adivina: si faltan los manifests de Ollama o alguno no se puede leer, no reporta nada.
 

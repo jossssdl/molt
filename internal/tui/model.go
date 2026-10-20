@@ -54,6 +54,7 @@ const (
 
 type (
 	resultMsg   scanner.ScanResult
+	warnMsg     scanner.ScanResult // scan-level problem (Target == nil)
 	scanDoneMsg struct{}
 	tickMsg     time.Time
 	cleanedMsg  []cleaner.Outcome
@@ -76,6 +77,7 @@ type Model struct {
 	mode     mode
 	scanning bool
 	needSort bool
+	skipped  int // paths the scan could not read (permission/error)
 
 	status  string
 	statusT time.Time
@@ -117,7 +119,7 @@ func waitForResult(ch <-chan scanner.ScanResult) tea.Cmd {
 	return func() tea.Msg {
 		for r := range ch {
 			if r.Target == nil { // scan-level warning, not an item
-				continue
+				return warnMsg(r)
 			}
 			return resultMsg(r)
 		}
@@ -264,7 +266,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tick()
 
+	case warnMsg:
+		m.skipped++
+		return m, waitForResult(m.results)
+
 	case resultMsg:
+		if msg.Err != nil {
+			m.skipped++ // size is a lower bound: some entries were unreadable
+		}
 		m.items = append(m.items, scanner.ScanResult(msg))
 		m.needSort = true
 		return m, waitForResult(m.results)

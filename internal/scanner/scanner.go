@@ -160,6 +160,7 @@ func discover(ctx context.Context, root string, patterns []targets.PatternTarget
 			if d == nil {
 				return err // the root itself is unusable
 			}
+			emit(ScanResult{Path: path, Err: err}) // counted as a skipped path
 			if d.IsDir() {
 				return fs.SkipDir // unreadable directory: keep going
 			}

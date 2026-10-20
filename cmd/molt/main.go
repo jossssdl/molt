@@ -203,13 +203,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	start := time.Now()
 	var results []scanner.ScanResult
+	var skipped []scanner.ScanResult
 	for r := range sc.Scan(ctx, roots) {
 		if r.Target == nil { // scan-level problem
-			fmt.Fprintf(stderr, "warning: %s: %v\n", r.Path, r.Err)
+			skipped = append(skipped, r)
 			continue
 		}
 		results = append(results, r)
 	}
+	reportSkipped(stderr, skipped)
 	elapsed := time.Since(start)
 	if ctx.Err() != nil {
 		fmt.Fprintln(stderr, "molt: interrupted, results are partial")
@@ -227,6 +229,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	printTable(stdout, results, elapsed)
 	return 0
+}
+
+// reportSkipped prints a compact summary of paths the scan could not read.
+func reportSkipped(w io.Writer, skipped []scanner.ScanResult) {
+	if len(skipped) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "warning: %d paths skipped (permission/error)\n", len(skipped))
+	for i, r := range skipped {
+		if i == 3 {
+			fmt.Fprintf(w, "  ... and %d more\n", len(skipped)-3)
+			break
+		}
+		fmt.Fprintf(w, "  %s: %v\n", r.Path, r.Err)
+	}
 }
 
 func printTable(w io.Writer, results []scanner.ScanResult, elapsed time.Duration) {

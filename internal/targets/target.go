@@ -3,6 +3,12 @@
 // and well-known cache locations outside any project (LocationTarget).
 package targets
 
+import "runtime"
+
+// goos is the running operating system; a variable only so docs and tests can
+// reason about it.
+var goos = runtime.GOOS
+
 // Category groups targets for display and filtering.
 type Category string
 
@@ -55,7 +61,8 @@ type Labeler interface {
 func Default(includeAI bool) []Target {
 	ts := []Target{NodeModules(), PythonVenv(), RustTarget(), NextJS()}
 	if includeAI {
-		ts = append(ts, HuggingFace(), Pip(), OllamaOrphans())
+		ts = append(ts, HuggingFace(), OllamaOrphans(), LlamaCppCache(), LMStudioModels(),
+			PyTorchHub(), UvCache(), Pip())
 	}
 	return ts
 }

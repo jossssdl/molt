@@ -42,7 +42,7 @@ const (
 	wCheck = 2
 	wSize  = 10
 	wBadge = 11
-	wType  = 13
+	wType  = 18
 	wIdle  = 6
 )
 
@@ -311,6 +311,9 @@ func (m Model) statusLine() string {
 	}
 	if m.status != "" {
 		return warnStyle.Render(m.status)
+	}
+	if m.skipped > 0 {
+		return dimStyle.Render(fmt.Sprintf("⚠ %d paths skipped (permission/error)", m.skipped))
 	}
 	return ""
 }
