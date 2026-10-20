@@ -41,7 +41,7 @@ In short: *free the most space with the least risk of losing work.*
 | `.venv` / `venv` | contains `pyvenv.cfg` |
 | `target` | next to `Cargo.toml` or `pom.xml` |
 | `.next` | next to `package.json` |
-| Hugging Face cache | `HF_HOME`, `$XDG_CACHE_HOME/huggingface`, `~/.cache/huggingface` (`-ai-caches`) |
+| Hugging Face models / datasets | each `models--*` and `datasets--*` folder in the hub cache (`HF_HUB_CACHE`, `HF_HOME/hub`, `~/.cache/huggingface/hub`), listed as e.g. `HF Model: org/name` (`-ai-caches`) |
 | pip cache | `PIP_CACHE_DIR`, `~/.cache/pip`, `%LOCALAPPDATA%\pip\Cache` (`-ai-caches`) |
 | Ollama orphan blobs | `sha256-*` blobs not referenced by any manifest in `OLLAMA_MODELS` or `~/.ollama/models` (`-ai-caches`) |
 
@@ -81,6 +81,10 @@ molt -dry-run=false -root ~/projects   # really delete (still asks for confirmat
 | `-workers <n>` | Measuring workers (default: number of CPUs). |
 | `-list` | Print a table and exit. |
 | `-json` | Print JSON and exit. |
+| `-min-size <size>` | Ignore targets smaller than this, e.g. `100MB`, `1GB` (binary units). |
+| `-min-age <age>` | Ignore targets active more recently than this (last file change or commit), e.g. `30d`, `2w`, `12h`. |
+| `-exclude <p>` | Folder name, glob or absolute path to skip while scanning; repeatable or comma-separated. |
+| `-version` | Print the version and exit (`go build -ldflags "-X main.version=v1.0.0"`). |
 | `-dry-run` | `true` by default: deletions are only simulated. Use `-dry-run=false` to delete for real. |
 
 ### Keys

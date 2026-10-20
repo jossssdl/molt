@@ -43,6 +43,13 @@ type LocationTarget interface {
 	Resolve() ([]string, error)
 }
 
+// Labeler is implemented by targets whose results deserve a human-readable
+// name, such as "HF Model: org/name", instead of a bare path.
+type Labeler interface {
+	// Label returns the display name for a path produced by this target.
+	Label(path string) string
+}
+
 // Default returns the built-in targets. AI caches are only included when
 // includeAI is set, since they are machine-wide rather than per-project.
 func Default(includeAI bool) []Target {

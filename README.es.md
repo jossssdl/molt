@@ -41,7 +41,7 @@ En resumen: *liberar el máximo espacio con el mínimo riesgo de perder trabajo.
 | `.venv` / `venv` | contiene `pyvenv.cfg` |
 | `target` | junto a `Cargo.toml` o `pom.xml` |
 | `.next` | junto a `package.json` |
-| Caché de Hugging Face | `HF_HOME`, `$XDG_CACHE_HOME/huggingface`, `~/.cache/huggingface` (`-ai-caches`) |
+| Modelos / datasets de Hugging Face | cada carpeta `models--*` y `datasets--*` de la caché del hub (`HF_HUB_CACHE`, `HF_HOME/hub`, `~/.cache/huggingface/hub`), listados como `HF Model: org/name` (`-ai-caches`) |
 | Caché de pip | `PIP_CACHE_DIR`, `~/.cache/pip`, `%LOCALAPPDATA%\pip\Cache` (`-ai-caches`) |
 | Blobs huérfanos de Ollama | blobs `sha256-*` que ningún manifest referencia, en `OLLAMA_MODELS` o `~/.ollama/models` (`-ai-caches`) |
 
@@ -81,6 +81,10 @@ molt -dry-run=false -root ~/proyectos   # borra de verdad (aún pide confirmaci�
 | `-workers <n>` | Workers de medición (por defecto: número de CPUs). |
 | `-list` | Imprime una tabla y termina. |
 | `-json` | Imprime JSON y termina. |
+| `-min-size <tamaño>` | Ignora objetivos menores a este peso, p. ej. `100MB`, `1GB` (unidades binarias). |
+| `-min-age <edad>` | Ignora objetivos con actividad más reciente que esto (último cambio de archivo o commit), p. ej. `30d`, `2w`, `12h`. |
+| `-exclude <p>` | Nombre de carpeta, patrón glob o ruta absoluta a omitir; repetible o separado por comas. |
+| `-version` | Imprime la versión y termina (`go build -ldflags "-X main.version=v1.0.0"`). |
 | `-dry-run` | `true` por defecto: los borrados solo se simulan. Usa `-dry-run=false` para borrar de verdad. |
 
 ### Teclas

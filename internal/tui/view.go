@@ -213,7 +213,7 @@ func (m Model) View() string {
 		}
 		line := mark + check + padLeft(scanner.FormatBytes(it.SizeBytes), wSize) + "  " +
 			badge(it) + " " + pad(it.Target.Name(), wType) +
-			padLeft(ago(activity(it), now), wIdle) + "  " + shorten(it.Path, pathW)
+			padLeft(ago(activity(it), now), wIdle) + "  " + rowName(it, pathW)
 		line = lipgloss.NewStyle().MaxWidth(w).Render(line)
 		if k == m.cursor {
 			line = cursorBg.Render(pad(line, w))
@@ -224,12 +224,15 @@ func (m Model) View() string {
 		add("")
 	}
 
-	// footer: separator, detail x2, status, help
+	// footer: separator, 3 detail lines, status, help
 	add(dimStyle.Render(strings.Repeat("─", w-1)))
 	if it, ok := m.cur(); ok {
+		_, l2, l3 := detailLines(it)
 		add(boldStyle.Render(shorten(it.Path, w-2)))
-		add(detailLine(it))
+		add(l2)
+		add(l3)
 	} else {
+		add("")
 		add("")
 		add("")
 	}
@@ -245,26 +248,49 @@ func (m Model) View() string {
 	return strings.Join(lines, "\n")
 }
 
-func detailLine(it scanner.ScanResult) string {
-	var parts []string
-	switch it.Safety() {
-	case scanner.SafetySafe:
-		switch {
-		case it.Git != nil && it.Git.IsRepo:
-			parts = append(parts, okStyle.Render("git: clean and pushed"))
-		case it.Git != nil:
-			parts = append(parts, okStyle.Render("not inside a git repository"))
-		default:
-			parts = append(parts, okStyle.Render("no git check needed"))
-		}
-	default:
-		parts = append(parts, badStyle.Render("git: "+it.Detail()))
+// rowName is what the PATH column shows: the target's own label when it has
+// one (for example "HF Model: org/name"), otherwise the shortened path.
+func rowName(it scanner.ScanResult, w int) string {
+	if l := it.Label(); l != "" {
+		return shorten(l, w)
 	}
-	parts = append(parts, fmt.Sprintf("%d files", it.FileCount))
+	return shorten(it.Path, w)
+}
+
+// detailLines builds the panel under the table: the label (if any), the exact
+// reasons behind the safety verdict, and size/repository facts.
+func detailLines(it scanner.ScanResult) (label, why, meta string) {
+	label = it.Label()
+	switch {
+	case it.Git == nil:
+		why = okStyle.Render("SAFE") + dimStyle.Render(" · no git check needed for this target")
+	case it.Safety() == scanner.SafetySafe && it.Git.IsRepo:
+		why = okStyle.Render("SAFE") + dimStyle.Render(" · repo is clean and fully pushed")
+	case it.Safety() == scanner.SafetySafe:
+		why = okStyle.Render("SAFE") + dimStyle.Render(" · not inside a git repository")
+	default:
+		verdict := "DIRTY GIT"
+		if it.Safety() == scanner.SafetyUnknown {
+			verdict = "UNKNOWN"
+		}
+		why = badStyle.Bold(true).Render(verdict) + dimStyle.Render(" · ") +
+			badStyle.Render(strings.Join(it.Git.Details(), "; "))
+	}
+	parts := []string{fmt.Sprintf("%d files", it.FileCount)}
+	if it.Git != nil && it.Git.IsRepo {
+		parts = append(parts, "repo "+it.Git.Root)
+		if !it.Git.LastCommit.IsZero() {
+			parts = append(parts, "last commit "+it.Git.LastCommit.Format("2006-01-02"))
+		}
+	}
+	if label != "" {
+		parts = append([]string{label}, parts...)
+	}
 	if it.Err != nil {
 		parts = append(parts, warnStyle.Render("partial size: "+it.Err.Error()))
 	}
-	return strings.Join(parts, dimStyle.Render(" · "))
+	meta = dimStyle.Render(strings.Join(parts, " · "))
+	return label, why, meta
 }
 
 func (m Model) statusLine() string {

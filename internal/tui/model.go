@@ -48,7 +48,7 @@ const (
 // Layout constants shared by Update (mouse hit-testing) and View.
 const (
 	headerLines = 5 // title, stats, bar, filters, column header
-	footerLines = 5 // separator, 2 detail lines, status, help
+	footerLines = 6 // separator, 3 detail lines, status, help
 	firstRowY   = headerLines
 )
 
@@ -125,14 +125,7 @@ func waitForResult(ch <-chan scanner.ScanResult) tea.Cmd {
 	}
 }
 
-// activity is the most recent sign of life: a commit or a file change.
-func activity(r scanner.ScanResult) time.Time {
-	t := r.LastModified
-	if r.Git != nil && r.Git.LastCommit.After(t) {
-		t = r.Git.LastCommit
-	}
-	return t
-}
+func activity(r scanner.ScanResult) time.Time { return r.LastActivity() }
 
 func passes(f filter, r scanner.ScanResult) bool {
 	switch f {

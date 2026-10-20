@@ -49,14 +49,44 @@ func (c *Cleaner) WithAllowDirty() *Cleaner {
 	return &Cleaner{opts: o}
 }
 
+// locations memoizes LocationTarget.Resolve for the duration of one batch.
+// Resolving can be expensive (Ollama re-reads every manifest), and checking
+// each item against a fresh Resolve would make a batch quadratic. It is built
+// per call so a batch never trusts results from an earlier one.
+type locations struct {
+	byTarget map[string]map[string]struct{}
+}
+
+func newLocations() *locations { return &locations{byTarget: make(map[string]map[string]struct{})} }
+
+// has reports whether p is currently produced by t, resolving t at most once.
+func (l *locations) has(t targets.LocationTarget, p string) bool {
+	set, ok := l.byTarget[t.Name()]
+	if !ok {
+		set = make(map[string]struct{})
+		if paths, err := t.Resolve(); err == nil {
+			for _, q := range paths {
+				set[q] = struct{}{}
+			}
+		}
+		l.byTarget[t.Name()] = set
+	}
+	_, found := set[p]
+	return found
+}
+
 // Clean removes one scan result, or only reports it under DryRun.
 func (c *Cleaner) Clean(ctx context.Context, r scanner.ScanResult) Outcome {
+	return c.clean(ctx, r, newLocations())
+}
+
+func (c *Cleaner) clean(ctx context.Context, r scanner.ScanResult, locs *locations) Outcome {
 	out := Outcome{Path: r.Path, Bytes: r.SizeBytes}
 	if err := ctx.Err(); err != nil {
 		out.Err = err
 		return out
 	}
-	if err := c.check(r); err != nil {
+	if err := c.check(r, locs); err != nil {
 		out.Err = err
 		return out
 	}
@@ -76,8 +106,9 @@ func (c *Cleaner) Clean(ctx context.Context, r scanner.ScanResult) Outcome {
 // CleanAll cleans items in order, stopping early if ctx is cancelled.
 func (c *Cleaner) CleanAll(ctx context.Context, items []scanner.ScanResult) []Outcome {
 	outs := make([]Outcome, 0, len(items))
+	locs := newLocations() // shared by the whole batch: Resolve runs once per target
 	for _, r := range items {
-		outs = append(outs, c.Clean(ctx, r))
+		outs = append(outs, c.clean(ctx, r, locs))
 		if ctx.Err() != nil {
 			break
 		}
@@ -86,7 +117,7 @@ func (c *Cleaner) CleanAll(ctx context.Context, items []scanner.ScanResult) []Ou
 }
 
 // check enforces every precondition for deleting r.
-func (c *Cleaner) check(r scanner.ScanResult) error {
+func (c *Cleaner) check(r scanner.ScanResult, locs *locations) error {
 	refuse := func(format string, a ...any) error {
 		return fmt.Errorf("%w %s: %s", ErrUnsafe, r.Path, fmt.Sprintf(format, a...))
 	}
@@ -118,7 +149,7 @@ func (c *Cleaner) check(r scanner.ScanResult) error {
 			return refuse("no longer matches target %q", t.Name())
 		}
 	case targets.LocationTarget:
-		if !c.isKnownLocation(t, p) {
+		if !locs.has(t, p) {
 			return refuse("not a location of target %q", t.Name())
 		}
 	default:
@@ -134,17 +165,4 @@ func (c *Cleaner) check(r scanner.ScanResult) error {
 		}
 	}
 	return nil
-}
-
-func (c *Cleaner) isKnownLocation(t targets.LocationTarget, p string) bool {
-	paths, err := t.Resolve()
-	if err != nil {
-		return false
-	}
-	for _, q := range paths {
-		if q == p {
-			return true
-		}
-	}
-	return false
 }

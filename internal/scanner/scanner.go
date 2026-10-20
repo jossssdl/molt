@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/jossssdl/molt/internal/gitguard"
 	"github.com/jossssdl/molt/internal/targets"
@@ -19,6 +20,16 @@ type Scanner struct {
 	Guard gitguard.Guard
 	// Workers is the number of measuring goroutines (default: NumCPU).
 	Workers int
+	// Exclude lists glob patterns (matched against directory names and full
+	// paths) or absolute paths that the scan must skip.
+	Exclude []string
+	// MinSize drops results smaller than this many bytes (0 = keep all).
+	MinSize int64
+	// MinAge drops results whose last activity (file change or commit) is more
+	// recent than this (0 = keep all). Results with unknown activity are kept.
+	MinAge time.Duration
+	// Now overrides the clock used for MinAge (tests); default time.Now.
+	Now func() time.Time
 }
 
 type candidate struct {
@@ -45,6 +56,7 @@ func (s *Scanner) Scan(ctx context.Context, roots []string) <-chan ScanResult {
 		}
 	}
 
+	ex := newExcluder(s.Exclude)
 	emit := func(r ScanResult) bool {
 		select {
 		case out <- r:
@@ -74,7 +86,7 @@ func (s *Scanner) Scan(ctx context.Context, roots []string) <-chan ScanResult {
 		discovery.Add(1)
 		go func(root string) {
 			defer discovery.Done()
-			discover(ctx, root, patterns, submit, emit)
+			discover(ctx, root, patterns, ex, submit, emit)
 		}(root)
 	}
 	for _, lt := range locations {
@@ -86,6 +98,9 @@ func (s *Scanner) Scan(ctx context.Context, roots []string) <-chan ScanResult {
 				emit(ScanResult{Path: lt.Name(), Err: err})
 			}
 			for _, p := range paths {
+				if ex.match(p, filepath.Base(p)) {
+					continue
+				}
 				if !submit(candidate{path: p, target: lt}) {
 					return
 				}
@@ -110,7 +125,8 @@ func (s *Scanner) Scan(ctx context.Context, roots []string) <-chan ScanResult {
 				if ctx.Err() != nil {
 					return
 				}
-				if !emit(s.process(ctx, c)) {
+				r, keep := s.process(ctx, c)
+				if keep && !emit(r) {
 					return
 				}
 			}
@@ -126,7 +142,7 @@ func (s *Scanner) Scan(ctx context.Context, roots []string) <-chan ScanResult {
 // discover walks root and submits every directory matched by a pattern target.
 // Matched directories are not descended into, so nested node_modules are
 // reported once, as part of their outermost parent.
-func discover(ctx context.Context, root string, patterns []targets.PatternTarget,
+func discover(ctx context.Context, root string, patterns []targets.PatternTarget, ex *excluder,
 	submit func(candidate) bool, emit func(ScanResult) bool) {
 	if len(patterns) == 0 {
 		return
@@ -153,7 +169,7 @@ func discover(ctx context.Context, root string, patterns []targets.PatternTarget
 			return nil
 		}
 		name := d.Name()
-		if name == ".git" {
+		if name == ".git" || (path != abs && ex.match(path, name)) {
 			return fs.SkipDir
 		}
 		for _, t := range patterns {
@@ -171,10 +187,12 @@ func discover(ctx context.Context, root string, patterns []targets.PatternTarget
 	}
 }
 
-// process measures one candidate and checks its Git state.
-func (s *Scanner) process(ctx context.Context, c candidate) ScanResult {
+// process measures one candidate and checks its Git state. keep is false when
+// the result is filtered out by MinSize or MinAge. The size filter runs before
+// the Git check so small candidates never cost a git invocation.
+func (s *Scanner) process(ctx context.Context, c candidate) (r ScanResult, keep bool) {
 	u, err := Measure(ctx, c.path)
-	r := ScanResult{
+	r = ScanResult{
 		Path:         c.path,
 		Target:       c.target,
 		SizeBytes:    u.Size,
@@ -182,9 +200,21 @@ func (s *Scanner) process(ctx context.Context, c candidate) ScanResult {
 		LastModified: u.Newest,
 		Err:          err,
 	}
+	if s.MinSize > 0 && r.SizeBytes < s.MinSize {
+		return r, false
+	}
 	if c.target.GitAware() && s.Guard != nil {
 		st := s.Guard.Status(ctx, c.path)
 		r.Git = &st
 	}
-	return r
+	if s.MinAge > 0 {
+		now := time.Now
+		if s.Now != nil {
+			now = s.Now
+		}
+		if last := r.LastActivity(); !last.IsZero() && now().Sub(last) < s.MinAge {
+			return r, false
+		}
+	}
+	return r, true
 }
